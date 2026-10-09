@@ -1,0 +1,118 @@
+Cambios v2.1 · Escáner de documentos (PDF / TXT)
+=================================================
+
+Módulo musuq: arrastrar y soltar documentos para alimentar el Adaptador
+cultural. Sólo se aceptan .pdf y .txt.
+
+ARCHIVOS Musuqkuna
+---------------
+1. core/docscanner.py        (musuq, ~330 líneas)
+   - inspect(filename, data, mimetype) -> dict con el texto extraído y métricas
+   - limits() -> extensiones, MIME esperados, límite de tamaño
+   - ScanError con mensaje en español + pista de solución
+   - PDF: pypdf; detecta PDF cifrado, PDF dañado y PDF sin capa de texto
+     (escaneado) avisando que ruway falta OCR en lugar de fallar en silencio
+   - TXT: UTF-8 (con BOM) -> cp1252 -> latin-1, informando la codificación
+   - Rechaza un .txt que en realidad sea binario
+   - Trunca a 400 000 caracteres y declara el truncado en notes
+
+ARCHIVOS MODIFICADOS
+--------------------
+2. app.py
+   - import de core.docscanner
+   - GET  /api/scan/limits  -> extensiones, MIME, límite y formatos rechazados
+   - POST /api/scan         -> multipart, chakra «file»; 415 tipo no permitido,
+                               413 demasiado hatun, 422 PDF ilegible/cifrado
+   - helper _sample_pdf() para el self-test
+   - self-test ampliado: +4 comprobaciones (TXT, PDF, rechazo de .docx, límites)
+
+3. static/js/ayllu.js
+   - noveno módulo «Escáner de documentos» en el sidebar (#/scan)
+   - zona de arrastre con estado .over y .busy, clic para elegir archivo
+   - validación en cliente: extensión y tamaño antes de wichay
+   - panel de resultado: suti, tipo, peso, páginas, caracteres, simikuna,
+     frases, minutos de lectura, legibilidad, codificación, pista de idioma
+   - avisos del servidor renderizados como alertas (PDF escaneado, etc.)
+   - acciones: Enviar al adaptador · Guardar en biblioteca · Copiar · Descargar .txt
+   - historial de la sesión (últimos 8 documentos)
+
+4. static/css/ayllu.css      - .dropzone, .dropzone.over/.busy, .doc-preview, .chips
+5. requirements.txt          - pypdf==6.19.0
+6. .env.example              - AYLLU_MAX_UPLOAD_MB=8
+7. README.md                 - sección del escáner + limitaciones + verificación
+8. prompt_ayllu.txt          - módulo 9 y contrato de /api/scan
+
+SEGURIDAD / HONESTIDAD
+----------------------
+- La validación se aplica Iskay veces: en el navegador y en el servidor.
+- El servidor no confía en la extensión: comprueba bytes mágicos %PDF- en
+  PDF y descarta TXT binarios.
+- El suti se sanea (sin rutas ni caracteres de control) antes de usarlo.
+- No se guarda ningún archivo en disco: el texto vive en memoria de la
+  sesión y sólo se persiste si el usuario pulsa «Guardar en biblioteca».
+- La imagen de un PDF escaneado NO se puede ñawinchay sin OCR: se dice
+  claramente en lugar de devolver un texto vacío sin explicación.
+
+CORRECCIÓN v2.1.1 · modal vacío visible sobre la aplicación
+===========================================================
+Síntoma: al abrir la app aparecía un recuadro modal vacío encima del
+Dashboard, con un guion suelto como título.
+
+Causa raíz (CSS): el elemento <div id="modal" class="modal-backdrop" hidden>
+se ocultaba sólo con el atributo HTML `hidden`. El navegador aplica
+`[hidden]{display:none}` desde su raphi de usuario, pero cualquier regla de
+autor con `display` la ANULA. La regla `.modal-backdrop{display:grid;...}`
+del design system vencía a la del navegador, así que el modal se pintaba
+siempre, vacío, sobre la app. El guion era el marcador de posición
+`<h3 id="modal-title">—</h3>` del HTML.
+
+Arreglo:
+1. static/css/ayllu.css  ->  [hidden]{display:none !important}
+   Regla global que restaura la ocultación para cualquier elemento con el
+   atributo `hidden` (modal y panel de búsqueda incluidos).
+2. static/css/ayllu.css  ->  .modal-backdrop[hidden]{display:none}
+   Refuerzo específico, sin `!important`, por si algún día se retira la regla global.
+3. static/index.html     ->  <h3 id="modal-title"></h3>
+   Se elimina el guion de marcador de posición; el JS lo rellena al abrir.
+
+Verificado en navegador real (Chromium headless, 1366x900):
+  modal display = "none"  ·  no ocupa pantalla  ·  0 errores de consola
+  el modal sigue abriendo al pulsar «Musuq ayllu» y cierra correctamente
+
+CORRECCIÓN v2.1.2 · el adaptador no traducía al pulsar el botón
+===============================================================
+Síntoma: en «Adaptador cultural» se pulsaba «Adaptar y evaluar» y el panel
+seguía diciendo «Aún no has adaptado nada».
+
+Causa raíz nº 1 (el botón no hacía nada): runAdapt() existía en ayllu.js pero
+NINGÚN manejador la llamaba. La lista de selectores del manejador de clic
+delegado solo incluía elementos con data-*; los kimsa botones del adaptador
+(adapt-run, adapt-prompt, adapt-feedback) usan id, así que nunca entraban.
+Arreglo: se añaden [id=adapt-run], [id=adapt-prompt], [id=adapt-feedback] a la
+lista y sus kimsa ramas; el botón se deshabilita y muestra «Adaptando…»
+mientras espera, y un toast informa de la simi, el chrF2 y la cobertura.
+«Rikuy prompt blindado» estrena endpoint propio POST /api/prompt: devuelve el
+prompt SIN llamar al LLM (no toca el contrato de 12 claves de /api/adapt).
+
+Causa raíz nº 2 (la salida estaba rota):
+- El léxico tenía 18 términos → cobertura del 11,8 %.
+- _apply_glossary buscaba el término DESTINO y no exigía límite de simi:
+  en guaraní el yaku es «y», así que marcaba la conjunción «y» y el interior de
+  «ysyry» y «yvága» -> «y (agua)syry». Arreglo: se exige (?<!\w) ... (?!\w) y se
+  omiten los términos de una sola letra.
+- _simplify añadía un punto a fragmentos que ya terminaban en punto («..») y
+  cortaba en seco dejando preposiciones colgando («…la q'uñichiy y.»). Arreglo:
+  se corta en la última coma antes del límite y, si no hay, se avanza mientras
+  la última simi sea funcional; helper _close() no duplica el punto.
+- El traductor reconocía solo formas exactas: ahora recorta sufijos castellanos
+  (plurales y conjugaciones) mediante raíces («muhukuna», «repartimos»).
+- Cobertura: pasa a medirse sobre Simikuna DE CONTENIDO. Las simikuna
+  funcionales (el, la, de, y, cuando...) se conservan a propósito en castellano
+  porque una glosa término a término no reproduce la morfología de la simi
+  destino; se informa cuántas se conservaron.
+- Léxico ampliado a 120 términos (naturaleza, yachay wasi, sociedad, kurku,
+  uywakuna, números, colores, verbos y el vocabulario del material demo).
+
+Verificado en navegador real: el panel muestra el texto traducido con los
+términos del glosario resaltados, sin corrupción en guaraní, 0 errores de
+consola. Self-test: 28/28.

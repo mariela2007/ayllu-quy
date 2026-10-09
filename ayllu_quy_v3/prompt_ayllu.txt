@@ -1,0 +1,206 @@
+# Ayllu · prompt regenerable v2
+# ---------------------------------------------------------------
+# Prompt yachachiq para reconstruir esta entrega completa con un LLM
+# de código. Úsalo como entrada única: describe stack, módulos,
+# contrato de API, design system y criterios de verificación.
+
+## 0. Identidad
+
+Construye **Ayllu**, aplicación web para el reto #06 de hack4edu:
+adaptación cultural y traducción de materiales educativos a simikuna
+originarias andinas y amazónicas, con evidencia numérica del impacto
+en el aprendizaje.
+
+MVP en **4 simikuna confirmadas en FLORES-200**:
+`spa_Latn` (español), `quy_Latn` (quechua ayacuchano), `ayr_Latn`
+(aimara), `grn_Latn` (guaraní).
+Náhuatl, maya yucateco y mapudungun **quedan fuera del MVP** porque
+no están en FLORES-200: se muestran en la interfaz con su motivo.
+
+## 1. Stack obligatorio
+
+- Backend: **Flask 3.1** con *application factory*, servido por
+  **gunicorn** (`--timeout 60`) en Render plan Free.
+- Persistencia: **Supabase** (Postgres) vía cliente oficial.
+  **Modo degradado obligatorio**: si faltan `SUPABASE_URL`/`SUPABASE_KEY`
+  o la conexión falla, se carga una muhu embebida en memoria
+  (4 simikuna, 6 ayllukuna, 17 yachakuqkuna, 18 términos de glosario,
+  5 materiales, 7 eventos, 3 feedback) y la SPA debe arrancar completa.
+- Frontend: **una sola página**, HTML + CSS + JS sin frameworks ni CDN
+  (0 KB de Chart.js: los gráficos son SVG generados a maki).
+- Traducción: **NLLB-200** por API externa (`NLLB_API_URL`), con
+  traductor de respaldo determinista por léxico embebido que declara
+  explícitamente qué no pudo traducir.
+- Adaptación: **LLM externo** (`LLM_API_URL`) con *prompt blindado*;
+  si no responde, adaptador por reglas (glosario + simplificación por
+  nivel + anclaje al contexto de la ayllu).
+- Evaluación: **chrF2** implementado con la librería estándar,
+  **BERTScore** real si `bert-score` está instalado (si no, proxy por
+  coseno de hashing, declarado como tal), **Flesch-Fernández-Huerta**
+  para español y **cohen d** para el efecto pre/post.
+- Auth: **JWT HS256** con `hmac` + `hashlib` (sin PyJWT).
+
+## 2. Estructura de archivos exacta
+
+```
+ayllu/
+├── app.py                     # Flask factory · 30+ endpoints · SPA · self-test
+├── core/__init__.py
+├── core/db.py                 # SupabaseStore + MemoryStore thread-safe
+├── core/auth.py               # JWT HMAC-SHA256 stdlib
+├── core/services.py           # AylluService · 22 métodos de dominio
+├── core/docscanner.py         # escáner PDF/TXT: validación + extracción + métricas
+├── core/seed.py               # muhu embebida completa
+├── translator.py              # NLLB-200 vía API + fallback léxico
+├── cultural_adapter.py        # LLM externo + prompt blindado + reglas
+├── evaluator.py               # chrF2 / BERTScore / Flesch-FH / cohen d
+├── supabase_client.py         # stub retrocompatible
+├── seed_data.py               # CLI python seed_data.py --write
+├── requirements.txt
+├── render.yaml
+├── schema_supabase.sql        # 7 tablas + 5 índices
+├── .env.example
+├── README.md
+├── prompt_ayllu.txt           # este archivo
+├── CAMBIOS_V2_1.txt           # cambios del escáner
+└── static/
+    ├── index.html             # shell con sidebar + topbar
+    ├── favicon.svg
+    ├── css/ayllu.css          # design system
+    └── js/ayllu.js            # router hash + 9 vistas + CRUD
+```
+
+## 3. Contrato de la API
+
+Rutas de lectura: `GET /healthz`, `/api/dashboard`, `/api/languages`,
+`/api/lexicon`, `/api/communities`, `/api/communities/<id>`,
+`/api/students`, `/api/students/<id>`, `/api/glossary`,
+`/api/glossary/<id>`, `/api/glossary/suggest`, `/api/materials`,
+`/api/quality`, `/api/quality/score`, `/api/analytics`, `/api/feedback`,
+`/api/activity`, `/api/search`, `/api/auth/me`,
+`/api/export/<tabla>.csv`.
+
+Rutas de escritura: `POST/PUT/DELETE` para `communities`, `students`,
+`glossary`, `materials`; `POST /api/glossary/import`;
+`POST /api/adapt`; `POST /api/quality`; `POST /api/feedback`;
+`POST /api/auth/login`; `POST /api/admin/reset`;
+`POST /api/scan` (multipart, chakra `file`).
+
+**Escáner de documentos:** `GET /api/scan/limits` publica extensiones
+aceptadas, MIME esperados y tamaño máximo. `POST /api/scan` acepta
+**sólo `.pdf` y `.txt`**, con doble validación (extensión + bytes mágicos
+`%PDF-`, y rechazo de `.txt` binarios), límite de tamaño, detección de PDF
+cifrado o dañado y aviso explícito cuando el PDF no tiene capa de texto
+(escaneado → requiere OCR). Devuelve texto, métricas y avisos; nunca
+guarda el archivo en disco.
+
+**Contrato estricto de `POST /api/adapt`** — exactamente 12 claves:
+
+```
+adapted, cacheHit, cacheId, context, degraded, flesch,
+glossary, level, rawTranslation, scores, src, tgt
+```
+
+`scores` contiene `chrF2`, `BERTScore` y `BERTScoreKind` (para no
+presentar nunca un proxy como BERTScore real). La segunda llamada
+idéntica debe devolver `cacheHit: true`.
+
+## 4. Los 9 módulos funcionales
+
+1. **Dashboard** — tarjetas KPI (ayllukuna, simikuna activas,
+   yachakuqkuna, adaptaciones, eficacia con chrF2 ≥ 60, ganancia media
+   pre→post), donut de cobertura por simi, lista de actividad
+   reciente con chrF2 en línea y simikuna excluidas del MVP.
+2. **Adaptador cultural** — split-screen original/adaptado con
+   `<mark>` sobre los términos del glosario, panel de
+   chrF2/BERTScore/Flesch/caché, botón «Rikuy prompt blindado» y
+   formulario de feedback de hablante nativo (1-5 ch'askakuna + nota).
+3. **Comunidades** — CRUD completo de los 6 perfiles (andino,
+   amazónico, chaqueño, urbano) con simi, familia lingüística,
+   altitud, descripción y contador de alumnos.
+4. **Mediciones** — tabla paginada de 17 yachakuqkuna con sparkline
+   pre/post por fila, promedio por simi y cohen d por cohorte
+   etiquetado «impacto sólido / moderado / bajo».
+5. **Biblioteca** — 5 materiales demo con CRUD en modal; el botón
+   «Adaptar fragmento →» envía el snippet al Adaptador.
+6. **Analítica** — donut de cobertura, barras de actividad diaria,
+   nube de términos más adaptados, leaderboard TOP 10 por chrF2 y
+   alertas operacionales.
+7. **Glosario** — CRUD de 18 términos iniciales, búsqueda tolerante a
+   typos (rapidfuzz si está instalada; substring si no), importación
+   CSV masiva por línea.
+8. **Admin / Audit** — feedback de hablantes nativos, ping a
+   `/healthz` renderizado en vivo y trazabilidad de escrituras.
+9. **Escáner de documentos** — zona de arrastre que acepta **sólo .pdf y
+   .txt**, valida extensión, tamaño y contenido real en cliente **y**
+   servidor, extrae el texto y lo entrega al Adaptador o a la Biblioteca.
+   Muestra páginas, caracteres, simikuna, frases, minutos de lectura,
+   legibilidad y pista de idioma; avisa cuando un PDF escaneado necesita OCR.
+
+## 5. Design system
+
+- Paleta oscura con acento **cian `#22d3ee`**, superficies
+  `#0f172a` / `#131c31`, bordes `#1e293b`, radio **14 px**.
+- Tema claro alternativo conmutables desde la topbar.
+- Sidebar colapsable (248 px ↔ 64 px) con iconos SVG propios y
+  contadores por sección.
+- Topbar con ruta dinámica, búsqueda global, reloj UTC en vivo y punto
+  de `/healthz` que cambia q'umir / ámbar / puka.
+- Tags semánticos (`ok` / `warn` / `bad` / `accent`), alertas,
+  modales con telón, toasts y paginación.
+- Gráficos **SVG en línea**: `donut`, `bars`, `sparkline`, `cloud`.
+- Responsive: a 1024 px pasa a una columna.
+
+## 6. Reglas de honestidad del producto
+
+- Llapan dato de demostración debe estar marcado como demo **en la
+  interfaz y en el README**, no sólo en el código.
+- El texto en simikuna originarias de la muhu es demostrativo y
+  **no está validado** por hablantes nativos.
+- El modo degradado debe ser visible: nunca presentar una salida por
+  reglas como si viniera del LLM.
+- Las cifras de cuotas (Render Free, Supabase Free) y la lista de
+  simikuna de FLORES-200 se citan con su fuente.
+
+## 7. Verificación obligatoria antes de empaquetar
+
+```bash
+python -m py_compile app.py core/{db,auth,services,seed}.py \
+       translator.py cultural_adapter.py evaluator.py \
+       supabase_client.py seed_data.py     # 0 errores de sintaxis
+
+SELFTEST=1 python3 app.py                  # 26 asserts end-to-end
+```
+
+El self-test debe cubrir: `/healthz`, las 4 simikuna, 6 ayllukuna,
+17 yachakuqkuna, el dashboard, CRUD de ayllukuna y glosario,
+import CSV, creación de materiales, `POST /api/adapt` con las 12
+claves exactas, `cacheHit` en la segunda llamada, `/api/quality`,
+analítica, feedback, export CSV + búsqueda, **extracción de texto de un
+`.txt`, extracción de un `.pdf`, rechazo de un `.docx` con HTTP 415 y
+publicación de límites en `/api/scan/limits`**.
+
+
+=====================================================================
+FLUJO v3 · AULA BILINGÜE CON DOS ROLES (docente / estudiante)
+=====================================================================
+Ampliación del contrato de la API sobre el mismo dominio:
+
+· GET  /api/aula/users                      → directorio de cuentas por rol
+· GET  /api/aula/messages?userId=&role=      → bandeja traducida
+· POST /api/aula/messages                    → traduce y entrega el mensaje
+    Entrada: {fromUserId, toUserId, kind: mensaje|documento, title, text}
+    Salida:  fila con srcText (texto intacto del autor), outText (traducción),
+             src, tgt, coverage, chrF2, glossary[] y notes[]
+· POST /api/aula/documents  (multipart)       → el docente sube .pdf/.txt y se
+    convierte en un mensaje de tipo material ya traducido para el estudiante
+· PUT  /api/aula/messages/<id>/read           → marca leído
+· GET  /api/aula/insights                     → bandeja, pares de lenguas, cobertura
+· POST /api/auth/login                        → token con {role, lang}
+· GET  /api/auth/users                        → acceso rápido (modo demo)
+
+Reglas del flujo:
+1. El texto que escribe cada persona NUNCA se modifica: se conserva en srcText.
+2. El docente trabaja en castellano; cada estudiante en su lengua (langCode).
+3. Salida marcada como glosa de vocabulario (degraded = true) hasta conectar
+   NLLB_API_URL; siempre requiere revisión de un hablante nativo.

@@ -1,0 +1,127 @@
+Cambios v3.0 · Aula bilingüe con dos roles (docente / estudiante)
+=================================================================
+
+Punto de partida: paquete ayllu_quy_v3 (Flask + Supabase + SPA) con 9 módulos,
+escáner PDF/TXT y adaptador cultural. Se conserva el diseño, el design system,
+los 12 campos de POST /api/adapt y los 9 módulos; sólo se añade el flujo del
+aula descrito en las diapositivas 4 a 8.
+
+IDEA QUE GUÍA ESTOS CAMBIOS
+---------------------------
+Ayllu no sólo adapta documentos: es un PUENTE DE COMUNICACIÓN. La profesora
+escribe en castellano y el estudiante lee en su lengua; el estudiante escribe en
+su lengua y la profesora lee en castellano. Cada cuenta declara su rol y su
+lengua, y el texto original nunca se modifica.
+
+ARCHIVOS NUEVOS
+---------------
+1. core/seed.py · USERS, LANG_NAME y build_messages()
+   - Cuatro cuentas: 1 docente (spa_Latn) y 3 estudiantes (quy_Latn, ayr_Latn,
+     grn_Latn), vinculadas a su comunidad y a su fila de mediciones.
+   - Bandeja sembrada de 5 mensajes/materiales ya traducidos con el mismo motor
+     que usa la aplicación (no texto escrito a mano).
+2. app.py · register_aula_routes()  (segundo archivo que se anota aquí, pero
+   la función es nueva; el router suma el flujo del aula sin tocar el núcleo)
+3. .env.example
+4. CAMBIOS_V3_0.txt (este archivo)
+
+ARCHIVOS MODIFICADOS
+--------------------
+1. core/auth.py
+   - Login real contra core.seed.USERS: devuelve perfil + token JWT HS256 con
+     {sub, role, lang, iat, exp}.
+   - users(), profile(), public_users(), demo_mode() y claves por rol
+     sobreescribibles con AYLLU_DOCENTE_PASSWORD / AYLLU_ESTUDIANTE_PASSWORD.
+   - AYLLU_DEMO_LOGIN=0 deja de publicar el directorio de cuentas.
+
+2. core/db.py
+   - TABLES suma «users» y «messages».
+   - _seed_rows() siembra las cuentas y la bandeja traducida.
+
+3. core/services.py
+   - list_users(), list_messages(userId, role, limit), create_message(payload),
+     mark_message_read(id) e insights().
+   - create_message() traduce con translator.translate(), anota el glosario con
+     cultural_adapter.gloss(), calcula chrF2 y guarda:
+        srcText  = lo que escribió la persona (intacto)
+        outText  = lo que lee el destinatario (traducido)
+        originEs = lectura en castellano cuando escribe el estudiante
+     El mensaje queda registrado en events como kind «mensaje».
+
+4. translator.py
+   - Nuevo índice invertido (_reverse_index) para la dirección
+     lengua originaria → castellano.
+   - En esa dirección la cascada es NLLB + léxico invertido (Google no acepta
+     la lengua origen de forma fiable) y el provider se declara
+     «lexico-embebido-inverso».
+
+5. cultural_adapter.py
+   - gloss(): anota el glosario sobre un texto ya traducido SIN recortar frases
+     ni añadir anclaje cultural (eso queda para los materiales, no para los
+     mensajes del aula).
+
+6. app.py
+   - GET  /api/auth/users            · directorio de cuentas (acceso rápido)
+   - GET  /api/messages              · bandeja filtrable
+   - POST /api/messages              · traduce y entrega
+   - PUT  /api/messages/<id>/read    · marca leído
+   - GET  /api/insights              · tablero de gestión
+   - POST /api/aula/messages         · mismo POST, namespace del aula
+   - POST /api/aula/documents        · multipart .pdf/.txt → mensaje traducido
+   - El self-test pasa de 28 a 38 asserts.
+
+7. schema_supabase.sql
+   - Tablas «users» y «messages» + 4 índices.
+
+8. seed_data.py
+   - La siembra de Supabase incluye cuentas y bandeja.
+
+9. static/index.html
+   - Overlay de acceso con los dos roles, tarjetas de cuenta rápida y aviso de
+     que las claves son de demostración.
+   - topbar con identidad de sesión (rol, nombre, lengua, comunidad) y «Salir».
+
+10. static/css/ayllu.css
+    - Bloque v3: .login-shell, .login-card, .login-role, .role-chip, .chip-lang,
+      .aula-msg, .aula-pair, .aula-flow, .aula-thread.
+
+11. static/js/ayllu.js
+    - Sesión: loadSession(), doLogin(), logout(), paintWho(), paintLogin().
+    - El token viaja en la cabecera Authorization de todas las llamadas.
+    - Módulos nuevos: «Aula bilingüe» (estudiante) y «Entrega y gestión»
+      (docente). El rol filtra el menú: el estudiante no ve Adaptador,
+      Escáner ni Admin; el docente no ve el aula del estudiante.
+    - Vista del aula: redactar, traducir y enviar, con el par de paneles
+      «lo que escribiste» / «lo que lee la otra persona», términos del glosario
+      resaltados, cobertura y avisos.
+    - Vista de gestión: KPI de bandeja, pares de lenguas en uso, cobertura por
+      lengua y tabla de mensajes recibidos con su traducción.
+
+12. prompt_ayllu.txt · sección v3 con el contrato del flujo.
+13. README.md · reescrito para v3.
+
+CÓMO PROBARLO
+-------------
+    pip install -r requirements.txt
+    python app.py                 # http://127.0.0.1:5000
+    SELFTEST=1 python app.py      # 38 asserts end-to-end
+
+    Docente    docente@ayllu.pe    / ayllu-docente
+    Estudiante estudiante@ayllu.pe / ayllu-estudiante   (quechua ayacuchano)
+    Estudiante marco@ayllu.pe      / ayllu-estudiante   (aimara)
+    Estudiante sara@ayllu.pe       / ayllu-estudiante   (guaraní)
+
+    Dos pestañas: una como docente y otra como estudiante del mismo curso. Lo que
+    escribe una aparece traducido en la pantalla de la otra.
+
+LÍMITES QUE SIGUEN EN PIE (honestidad de la entrega)
+----------------------------------------------------
+1. Las traducciones en lenguas originarias provienen del léxico embebido (120
+   términos) o de NLLB si se configura NLLB_API_URL: son una GLOSA DE
+   VOCABULARIO, no una traducción completa, y NO están validadas por hablantes
+   nativos. Los mensajes se marcan como degraded = true.
+2. Las claves de demostración son visibles en la pantalla de acceso a propósito:
+   es un prototipo de hackatón, no un servicio endurecido. Con
+   AYLLU_REQUIRE_AUTH=1 se exige token en las escrituras.
+3. La serie diaria de Analítica sigue siendo demostrativa, no telemetría.
+4. El escáner lee la capa de texto: un PDF escaneado requiere OCR.

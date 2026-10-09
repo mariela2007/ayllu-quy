@@ -1,0 +1,49 @@
+# Ayllu · v4.0 · sobre el núcleo v3 (aula bilingüe con dos roles)
+# Cambios de esta entrega: escáner multi-lengua, catálogo ampliado, varios docentes.
+
+## 1. Escáner de documentos (arrastrar y soltar)
+- Se mantiene el arrastre de .pdf / .txt con validación doble (navegador + servidor,
+  bytes mágicos %PDF-, límite de tamaño, aviso de PDF sin capa de texto).
+- NUEVO: selector de lenguas de destino con selección múltiple, agrupado en
+  «Lenguas originarias» y «Otras lenguas», con chips quitables.
+- NUEVO: selector de destinatario (a qué estudiante o a qué profesor se entrega).
+- NUEVO: con lenguas elegidas el documento se traduce y queda en la bandeja del
+  aula, UNA ENTREGA POR LENGUA, con cobertura, chrF2, términos aplicados y estado
+  del motor. Sin lenguas elegidas sólo se extrae el texto (comportamiento previo).
+- Endpoint: POST /api/aula/documents acepta «targets» (coma/espacio) y «level».
+  Sin «targets» conserva exactamente el comportamiento v3 (una sola entrega).
+- La elección de idioma no depende del rol: manda el par de lenguas, así el aula
+  funciona igual con un profesor aimara o con lenguas internacionales.
+
+## 2. Catálogo de lenguas: de 4 a 21
+- Quechua ayacuchano, cusqueño, ancashino y quichua ecuatoriano; aimara; guaraní.
+- Náhuatl y maya yucateco.
+- Castellano, inglés, portugués, francés, alemán, italiano, ruso, árabe, chino
+  mandarín, japonés, coreano, hindi y suajili.
+- Cada lengua declara: code (FLORES-200), name, nativeName, family, speakers,
+  group (puente|originaria|internacional), google (ISO del motor) y lexicon
+  (si tiene columna en el glosario embebido).
+- El mapeo código FLORES -> código ISO del motor vive en core/seed.py; añadir una
+  lengua al catálogo la habilita también en el motor primario sin tocar translator.py.
+- Sigue fuera del catálogo lo que ningún motor cubre (mapudungun, asháninka,
+  shipibo-konibo): se listan con su motivo en lugar de ofrecerse en falso.
+
+## 3. Varios profesores
+- 3 docentes (Charlen Calero, Rosa Ancco, Julián Soria) y 5 estudiantes.
+- El aula y el escáner permiten elegir interlocutor; por omisión se propone el de
+  la misma comunidad, para no entregar el material al docente equivocado.
+- Nuevo estudiante Yaku Quispe en quechua cusqueño (quz_Latn).
+
+## 4. Honestidad de la traducción (declarado en la interfaz)
+- Google Translate no distingue variantes de quechua: para quz/qub/quw la salida
+  es aproximada (se envía «qu»).
+- Sólo quy_Latn, ayr_Latn y grn_Latn tienen léxico embebido. Para las demás, sin
+  motor conectado, la entrega conserva el original y lo declara en las notas en
+  lugar de presentarlo como traducción.
+- Los PDF escaneados siguen requiriendo OCR: se avisa, no se inventa texto.
+
+## 5. Verificación ejecutada
+- python -m py_compile app.py core/*.py translator.py cultural_adapter.py evaluator.py -> 0 errores
+- node --check static/js/ayllu.js -> sin errores de sintaxis
+- SELFTEST=1 python app.py -> asserts end-to-end OK (incluye escáner multi-lengua,
+  varios profesores, catálogo ampliado y rechazo de lengua desconocida con 400)

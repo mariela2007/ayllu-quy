@@ -1,0 +1,8 @@
+flask==3.1.0
+gunicorn==23.0.0
+supabase==2.32.0
+rapidfuzz==3.10.1
+pypdf==6.19.0
+
+# Opcional: instala bert-score si necesitas BERTScore real. La app usa un
+# proxy liviano y claramente etiquetado cuando esta dependencia no está presente.

@@ -1,0 +1,69 @@
+# Ayllu · v5.0 · sobre el núcleo v4 (escáner multi-lengua + catálogo de 21 lenguas)
+# Cambio de esta entrega: apartado de MENSAJERÍA docente ↔ estudiante.
+
+## 1. Apartado de mensajería (nuevo módulo «Mensajería»)
+- Conversaciones (hilos) con dos formas:
+  · directa: docente ↔ un estudiante (una por aula/lengua en la semilla);
+  · grupal: «Avisos para toda el aula», con varios estudiantes a la vez.
+- El estudiante puede escribir a su profesor y el docente a cualquier estudiante
+  o a todo el grupo, desde el mismo apartado y sin salir de su rol.
+- Insignia de no leídos por conversación y contador total en el menú lateral
+  (el módulo «Mensajería» muestra el número de mensajes sin leer).
+
+## 2. Dos direcciones, un solo hilo
+- Escribe el docente en castellano → el estudiante lo lee en su lengua.
+- Escribe el estudiante en su lengua → el docente lo lee en castellano.
+- El texto que escribió cada persona NUNCA se modifica: queda intacto en
+  «srcText»; la traducción que lee el receptor queda en «outText».
+
+## 3. Traducción bajo demanda, para los dos roles (botón «Traducir»)
+- Cada mensaje trae su propio selector de lengua (21 lenguas del catálogo) y un
+  botón «Traducir»: tanto el profesor como el estudiante pueden pedir cualquier
+  lengua, no sólo la suya.
+- La traducción se guarda en el propio mensaje («translations»), así que la
+  segunda petición de la misma lengua se sirve desde la caché del mensaje.
+- La cascada es la del núcleo: motor con clave por entorno (NLLB / Hugging Face)
+  → Google Translate público → glosa con el léxico embebido. Si cae al léxico,
+  la respuesta llega con «degraded = true» y se declara como glosa.
+
+## 4. Documentos adjuntos (.pdf / .txt)
+- El mensaje puede llevar un documento: se valida con el mismo escáner del
+  núcleo (extensión, bytes mágicos %PDF-, tamaño máximo AYLLU_MAX_UPLOAD_MB) y
+  se rechaza cualquier otro formato con 415 (un .docx renombrado no pasa).
+- El texto extraído se traduce a la lengua elegida y se entrega en el mensaje.
+- El archivo no se escribe en disco: viaja en memoria dentro del mensaje y se
+  descarga desde su propio endpoint (GET /api/messaging/messages/<id>/attachment).
+
+## 5. API añadida (sin retirar nada del núcleo)
+- GET  /api/messaging/directory
+- GET  /api/messaging/threads?userId=
+- POST /api/messaging/threads
+- GET  /api/messaging/unread?userId=
+- GET  /api/messaging/threads/<id>/messages?userId=
+- POST /api/messaging/threads/<id>/messages
+- POST /api/messaging/threads/<id>/documents   (multipart: file, fromUserId, targets, level, title)
+- POST /api/messaging/messages/<id>/translate  (userId, tgt, level)
+- PUT  /api/messaging/messages/<id>/read
+- PUT  /api/messaging/threads/<id>/read
+- GET  /api/messaging/messages/<id>/attachment
+Los endpoints v3 del aula (/api/aula/*) y del núcleo siguen intactos.
+
+## 6. Datos
+- Nueva tabla en el almacén: «threads» (9 → 10 tablas) con 4 conversaciones
+  sembradas; «messages» gana threadId, translations, attachment y readBy.
+- Tabla SQL equivalente añadida a schema_supabase.sql.
+
+## 7. Honestidad de la traducción (heredada, sin cambios)
+- Sólo quy_Latn, ayr_Latn y grn_Latn tienen léxico embebido; para las demás,
+  sin motor conectado la entrega conserva el original y lo declara en las notas.
+- Google no distingue variantes de quechua (se envía «qu»): la salida es
+  aproximada y se declara como tal.
+- Los PDF escaneados requieren OCR: se avisa, no se inventa texto.
+
+## 8. Verificación ejecutada
+- python -m py_compile app.py core/*.py translator.py cultural_adapter.py evaluator.py
+- node --check static/js/ayllu.js
+- SELFTEST=1 python app.py → asserts end-to-end OK, incluidos los 12 nuevos
+  asserts de mensajería (hilos, dos direcciones, no leídos, traducción de los
+  dos roles, caché de traducción, adjunto válido, rechazo .docx con 415 y
+  descarga del adjunto).
