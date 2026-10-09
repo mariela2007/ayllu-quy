@@ -289,6 +289,15 @@ NLLB/Hugging Face si defines `HF_API_URL` + `HF_API_TOKEN` (o `NLLB_API_URL`) �
 se leen del entorno (`.env`, ver `.env.example`). Si cae al léxico, la respuesta
 llega con `degraded = true` y la interfaz lo declara como glosa.
 
+En Render puedes configurar `HF_API_URL` con
+`https://router.huggingface.co/hf-inference/models/facebook/nllb-200-distilled-600M`
+y guardar un token con permiso de Inference Providers en `HF_API_TOKEN`. Hugging
+Face ofrece créditos mensuales limitados para cuentas gratuitas; al agotarlos,
+el respaldo deja de traducir hasta la siguiente cuota, salvo que compres créditos.
+NLLB incluye quechua ayacuchano (`quy_Latn`), pero no quechua ancashino
+(`qub_Latn`); no se debe presentar una variante como si fuera la otra. Revisa
+siempre el resultado con una persona hablante de la lengua.
+
 ### API de la mensajería
 
 ```

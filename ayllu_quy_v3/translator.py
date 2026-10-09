@@ -322,7 +322,11 @@ def _hf_inference_translate(text: str, src: str, tgt: str) -> Optional[str]:
     try:
         with _open_translation_url(request, timeout=15) as resp:
             payload = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        logger.warning("NLLB/Hugging Face -> HTTPError %s: %s", exc.code, exc.reason)
+        return None
     except (urllib.error.URLError, TimeoutError, ValueError, OSError):
+        logger.warning("NLLB/Hugging Face no respondió")
         return None
     if isinstance(payload, list) and payload:
         item = payload[0]
