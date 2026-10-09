@@ -640,17 +640,20 @@ function renderAdapt(result) {
     }
   });
   const band = scoreBand(result.scores.chrF2);
-  return (
-    '<div class="split"><div class="pane"><h4>Original</h4><div class="body">' +
-    esc(lastAdapt && lastAdapt._src || "") + '</div></div>' +
-    '<div class="pane"><h4>Adaptado · ' + esc(result.tgt) + " · " + esc(result.level) +
-    '</h4><div class="body">' + adapted + "</div></div></div>" +
-    '<div class="score-strip">' +
+  const scoreMarkup = result.evaluationAvailable === false
+    ? '<div class="alert alert-warn" style="margin-top:12px"><strong>Evaluaci\u00f3n no disponible</strong><span>No se obtuvo una traducci\u00f3n autom\u00e1tica confiable para comparar. No se mostrara una puntuaci\u00f3n enga\u00f1osa.</span></div>'
+    : '<div class="score-strip">' +
       scoreCell("chrF2", fmt(result.scores.chrF2, 2), band) +
       scoreCell("BERTScore", fmt(result.scores.BERTScore, 4) + "", "tag") +
       scoreCell("Flesch-FH", fmt(result.flesch, 1), "tag") +
-      scoreCell("Caché", result.cacheHit ? "HIT" : "MISS", "tag") +
-    "</div>" +
+      scoreCell("Cach\u00e9", result.cacheHit ? "HIT" : "MISS", "tag") +
+      '</div><small class="muted">Las m\u00e9tricas comparan la adaptaci\u00f3n con el borrador autom\u00e1tico; no sustituyen la revisi\u00f3n de un hablante.</small>';
+  return (
+    '<div class="split"><div class="pane"><h4>Original</h4><div class="body">' +
+    esc(lastAdapt && lastAdapt._src || "") + '</div></div>' +
+    '<div class="pane"><h4>Adaptado · ' + esc(languageName(result.tgt)) + " · " + esc(result.level) +
+    '</h4><div class="body">' + adapted + "</div></div></div>" +
+    scoreMarkup +
     '<div class="row" style="margin-top:12px">' + (glossary || '<span class="muted">Sin términos del glosario en el fragmento.</span>') + "</div>" +
     '<div style="margin-top:12px"><small class="muted">Proveedor: ' + esc(result.provider || "—") +
     " · trazas: " + esc((result.notes || []).join(" ")) + "</small></div>" +
@@ -658,7 +661,7 @@ function renderAdapt(result) {
     "<strong>" + (result.degraded ? "Modo degradado" : "Modelos activos") + "</strong><span>" +
     (result.degraded
       ? "Se usó el traductor léxico y/o el adaptador por reglas: la salida requiere revisión de un hablante nativo."
-      : "Salida generada por los modelos externos (NLLB-200 + LLM) con el prompt blindado.") +
+      : "La salida autom\u00e1tica est\u00e1 lista para revisi\u00f3n docente.") +
     "</span></div>"
   );
 }
@@ -690,15 +693,21 @@ async function runAdapt() {
     $("#adapt-out").innerHTML = renderAdapt(result);
     const tgtOption = document.querySelector("#adapt-tgt option:checked");
     const tgtName = tgtOption ? tgtOption.textContent.replace(/\s*\([^)]*\)\s*$/, "") : result.tgt;
-    toast(
-      "Traducido a " + tgtName + " · chrF2 " + fmt(result.scores.chrF2, 2) +
-      " · vocabulario cubierto " + fmt(result.coverage, 1) + "%",
-      result.degraded ? "warn" : "ok",
-      4600
-    );
-    if (result.degraded && result.lexiconSize) {
-      toast("Sin modelo NLLB conectado: se usó el léxico embebido de " + result.lexiconSize +
-            " términos. Conecta NLLB_API_URL para traducción completa.", "warn", 5200);
+    if (result.evaluationAvailable === false) {
+      toast("No se obtuvo una traducci\u00f3n confiable a " + tgtName + "; se conserva el original.", "warn", 5200);
+    } else {
+      toast(
+        "Adaptado a " + tgtName + " - similitud chrF2 " + fmt(result.scores.chrF2, 2),
+        result.degraded ? "warn" : "ok",
+        4600
+      );
+    }
+    if (result.translationDegraded || result.evaluationAvailable === false) {
+      const count = Number(result.lexiconSize || 0);
+      toast(count
+        ? "El traductor en l\u00ednea no respondi\u00f3. Se aplic\u00f3 el l\u00e9xico de respaldo (" + count + " t\u00e9rminos); requiere revisi\u00f3n."
+        : "El traductor en l\u00ednea no respondi\u00f3 y no hay vocabulario para esta variante. Se conserv\u00f3 el original.",
+        "warn", 6200);
     }
   } catch (err) {
     $("#adapt-out").innerHTML = '<div class="alert alert-bad"><strong>Error</strong><span>' + esc(err.message) + "</span></div>";

@@ -334,7 +334,10 @@ class AylluService:
                 "language": tgt,
                 "level": level,
             },
-            "degraded": bool(raw.get("degraded") and adapted.get("degraded")),
+            "degraded": bool(raw.get("degraded") or adapted.get("degraded")),
+            "translationDegraded": bool(raw.get("degraded")),
+            "translationEngine": raw.get("engine"),
+            "evaluationAvailable": not bool(raw.get("degraded")),
             "flesch": evaluator.flesch_fernandez_huerta(adapted["adapted"]),
             "glossary": adapted["glossary"],
             "level": level,
@@ -359,17 +362,19 @@ class AylluService:
         }
         with self._lock:
             self._adapt_cache[cache_id] = result
-        self.store.insert(
-            "events",
-            {
-                "kind": "adapt",
-                "langCode": tgt,
-                "snippet": text[:120],
-                "chrF2": result["scores"]["chrF2"],
-                "actor": str(payload.get("actor") or "api"),
-                "ts": self._now(),
-            },
-        )
+        # No registrar una puntuación como calidad si no hubo traducción de un motor.
+        if not raw.get("degraded"):
+            self.store.insert(
+                "events",
+                {
+                    "kind": "adapt",
+                    "langCode": tgt,
+                    "snippet": text[:120],
+                    "chrF2": result["scores"]["chrF2"],
+                    "actor": str(payload.get("actor") or "api"),
+                    "ts": self._now(),
+                },
+            )
         return result
 
     # -- soporte -------------------------------------------------------------
