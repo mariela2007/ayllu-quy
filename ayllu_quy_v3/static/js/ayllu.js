@@ -627,12 +627,15 @@ async function viewAdapt() {
 }
 
 function renderAdapt(result) {
-  const glossary = (result.glossary || []).map((hit) =>
+  const translationUnavailable = result.translationDegraded || result.evaluationAvailable === false;
+  const glossary = (translationUnavailable ? [] : (result.glossary || [])).map((hit) =>
     '<span class="tag tag-accent" title="' + esc(hit.domain) + '">' + esc(hit.term) +
     (hit.target ? " → " + esc(hit.target) : "") + "</span>"
   ).join(" ");
-  let adapted = esc(result.adapted);
-  (result.glossary || []).forEach((hit) => {
+  let adapted = translationUnavailable
+    ? '<span class="muted">No hay una traducci\u00f3n confiable ahora. El original se conserva a la izquierda.</span>'
+    : esc(result.adapted);
+  (translationUnavailable ? [] : (result.glossary || [])).forEach((hit) => {
     // los términos de 1 letra (p. ej. «y» = agua en guaraní) no se resaltan:
     // marcarían cada conjunción «y» del texto.
     if (hit.target && hit.target.trim().length >= 2) {
@@ -640,7 +643,7 @@ function renderAdapt(result) {
     }
   });
   const band = scoreBand(result.scores.chrF2);
-  const scoreMarkup = result.evaluationAvailable === false
+  const scoreMarkup = translationUnavailable
     ? '<div class="alert alert-warn" style="margin-top:12px"><strong>Evaluaci\u00f3n no disponible</strong><span>No se obtuvo una traducci\u00f3n autom\u00e1tica confiable para comparar. No se mostrara una puntuaci\u00f3n enga\u00f1osa.</span></div>'
     : '<div class="score-strip">' +
       scoreCell("chrF2", fmt(result.scores.chrF2, 2), band) +
@@ -651,17 +654,19 @@ function renderAdapt(result) {
   return (
     '<div class="split"><div class="pane"><h4>Original</h4><div class="body">' +
     esc(lastAdapt && lastAdapt._src || "") + '</div></div>' +
-    '<div class="pane"><h4>Adaptado · ' + esc(languageName(result.tgt)) + " · " + esc(result.level) +
+    '<div class="pane"><h4>' + (translationUnavailable ? "Traducci\u00f3n no disponible" : "Adaptado") + " \u00b7 " + esc(languageName(result.tgt)) + " \u00b7 " + esc(result.level) +
     '</h4><div class="body">' + adapted + "</div></div></div>" +
     scoreMarkup +
     '<div class="row" style="margin-top:12px">' + (glossary || '<span class="muted">Sin términos del glosario en el fragmento.</span>') + "</div>" +
-    '<div style="margin-top:12px"><small class="muted">Proveedor: ' + esc(result.provider || "—") +
-    " · trazas: " + esc((result.notes || []).join(" ")) + "</small></div>" +
+    (translationUnavailable ? "" : '<div style="margin-top:12px"><small class="muted">Proveedor: ' + esc(result.provider || "—") +
+    " · trazas: " + esc((result.notes || []).join(" ")) + "</small></div>") +
     '<div class="alert ' + (result.degraded ? "alert-warn" : "alert-ok") + '" style="margin-top:10px">' +
     "<strong>" + (result.degraded ? "Modo degradado" : "Modelos activos") + "</strong><span>" +
-    (result.degraded
-      ? "Se usó el traductor léxico y/o el adaptador por reglas: la salida requiere revisión de un hablante nativo."
-      : "La salida autom\u00e1tica est\u00e1 lista para revisi\u00f3n docente.") +
+    (translationUnavailable
+      ? "El motor no respondi\u00f3. Se ocult\u00f3 la salida de respaldo para no presentarla como traducci\u00f3n."
+      : result.degraded
+        ? "La adaptaci\u00f3n por reglas requiere revisi\u00f3n de una persona hablante."
+        : "La salida autom\u00e1tica est\u00e1 lista para revisi\u00f3n docente.") +
     "</span></div>"
   );
 }
@@ -693,21 +698,14 @@ async function runAdapt() {
     $("#adapt-out").innerHTML = renderAdapt(result);
     const tgtOption = document.querySelector("#adapt-tgt option:checked");
     const tgtName = tgtOption ? tgtOption.textContent.replace(/\s*\([^)]*\)\s*$/, "") : result.tgt;
-    if (result.evaluationAvailable === false) {
-      toast("No se obtuvo una traducci\u00f3n confiable a " + tgtName + "; se conserva el original.", "warn", 5200);
+    if (result.translationDegraded || result.evaluationAvailable === false) {
+      toast("No hay una traducci\u00f3n confiable a " + tgtName + ". Se conserva el original.", "warn", 5200);
     } else {
       toast(
         "Adaptado a " + tgtName + " - similitud chrF2 " + fmt(result.scores.chrF2, 2),
         result.degraded ? "warn" : "ok",
         4600
       );
-    }
-    if (result.translationDegraded || result.evaluationAvailable === false) {
-      const count = Number(result.lexiconSize || 0);
-      toast(count
-        ? "El traductor en l\u00ednea no respondi\u00f3. Se aplic\u00f3 el l\u00e9xico de respaldo (" + count + " t\u00e9rminos); requiere revisi\u00f3n."
-        : "El traductor en l\u00ednea no respondi\u00f3 y no hay vocabulario para esta variante. Se conserv\u00f3 el original.",
-        "warn", 6200);
     }
   } catch (err) {
     $("#adapt-out").innerHTML = '<div class="alert alert-bad"><strong>Error</strong><span>' + esc(err.message) + "</span></div>";
